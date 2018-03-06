@@ -25,7 +25,7 @@ img = Image.fromarray(data)
 img.save('other_new_test.png')'''
 
 def squared_euclidean_distance(x, y):
-    return np.linalg.norm(x - y)
+    return np.linalg.norm(np.subtract(x, y))
 
 def objective_function(data, clusters, means):
     cost = 0
@@ -41,7 +41,7 @@ def segment(data, k, distance=squared_euclidean_distance):
     kNum_channels = 3
     mean_shape = (k, kNum_channels)
 
-    print('Segmenting data of shape', data.shape)
+    print('Segmenting image of shape', data.shape)
     
     # Randomly initialize means
     means = np.multiply(np.random.rand(*mean_shape), kMax_pixel_value)
@@ -138,7 +138,7 @@ if __name__ == '__main__':
     data = load_image(image_name)
     #data = np.array([[[20, 0, 0], [0, 20, 0], [10, 10, 0], [225, 225, 0], [200, 250, 0], [250, 200, 0]]])
     #print('Data:', data)
-    k = 8
+    k = 7
     num_trials = 3
     for i in range(num_trials):
         segmented_data, clusters, means = segment(data, k)
