@@ -138,10 +138,10 @@ if __name__ == '__main__':
     data = load_image(image_name)
     #data = np.array([[[20, 0, 0], [0, 20, 0], [10, 10, 0], [225, 225, 0], [200, 250, 0], [250, 200, 0]]])
     #print('Data:', data)
-    k = 7
+    k = 5
     num_trials = 3
     for i in range(num_trials):
         segmented_data, clusters, means = segment(data, k)
-        cost = objective_function(segmented_data, clusters, means)
+        cost = objective_function(data, clusters, means)
         print('Cost:', cost)
         save_image(segmented_data, '%s_k%d_%d.png' %(sys.argv[1], k, int(cost)))
