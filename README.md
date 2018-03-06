@@ -2,11 +2,14 @@
 ## Description
 Image Segmentation using K-Means
 
+## Requires
+- matplotlib
+
 ## Quickstart
 ```bash
 git clone https://github.com/azhu7/ImageSegmentator.git
 cd ImageSegmentator/src
-python Gui.py
+python segment.py ../sample_pictures/owl.jpg
 ```
 
 ## Reporting Issues
