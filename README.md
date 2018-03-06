@@ -1,6 +1,8 @@
 # ImageSegmentator
 ## Description
-Image Segmentation using K-Means
+Image Segmentation using K-Means. Image segmentation is the process of assigning a label to every pixel in 
+an image such that pixels with the same label share similar characteristics. In our case, 
+we group pixels of similar colors.
 
 ## Requires
 - matplotlib
