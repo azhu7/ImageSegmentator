@@ -3,7 +3,6 @@ from __future__ import print_function
 import sys
 import numpy as np
 from matplotlib import pyplot as plt
-import bisect
 import time
 import getopt
 import logging
@@ -69,14 +68,6 @@ def weighted_random(weights, weights_sum):
     @param {float} weights_sum - sum of all weights
     @returns {tuple} selected indices
     '''
-    #cdf = [0]
-    #for i in range(weights.shape[0]):
-    #    for j in range(weights.shape[1]):
-    #        cdf.append(cdf[i*weights.shape[1]+j] + weights[i][j])
-    # print('weighted_random()')
-    # print('weights', weights)
-    # print('cdf', cdf)
-
     # Generate a random number: [0, weights_sum)
     r = np.random.rand() * weights_sum
     count = 0
@@ -86,8 +77,6 @@ def weighted_random(weights, weights_sum):
             if r < count:
                 return i, j
 
-    #i = bisect.bisect_right(cdf, r) - 1
-    #if i == len(cdf) - 1:
     raise SegmentatorException('Input image did not have at least k distinct pixels!')
 
 def k_means_plus_plus_initialization(data, k):
@@ -100,13 +89,13 @@ def k_means_plus_plus_initialization(data, k):
 
     # Choose initial center randomly
     selected_means = set()
-    logger.debug('Selecting mean 1')
+    logger.debug('Selecting mean 1.')
     selected_means.add(tuple(data[np.random.randint(0, data.shape[0])]
         [np.random.randint(0, data.shape[1])]))
     
     # Choose the remaining k-1 initial means according to K-means++
     for i in range(k-1):
-        logger.debug('Selecting mean %d' % (i + 2))
+        logger.debug('Selecting mean {0}.'.format(i+2))
         distances, distances_sum = compute_squared_distances(selected_means, data)
         new_mean_idx = weighted_random(distances, distances_sum)
 
@@ -139,11 +128,11 @@ def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=square
     @returns {3D uint8 numpy array} segmented image data
     '''
     start = time.time()
-    logger.info('Segmenting image into {0} segments'.format(k))
+    logger.info('Segmenting image into {0} segments.'.format(k))
     
     # Initialize means
     means = mean_init(data, k)
-    logger.debug('Initial means: {0}'.format(means))
+    logger.debug('Initial means: {0}.'.format(means))
 
     # Initialize all clusters as zero
     clusters = np.zeros(data.shape[:2], dtype='uint8')
@@ -151,9 +140,8 @@ def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=square
     num_reassigned = 11
     while num_reassigned > 10:
         clusters, num_reassigned = assign_clusters(data, clusters, means, distance)
-        logger.debug('Num reassigned: {0}'.format(num_reassigned))
+        logger.debug('Num reassigned: {0}.'.format(num_reassigned))
         means = compute_means(data, clusters, means.shape)
-        #print('New means:', means)
 
     new_image = np.zeros(data.shape, dtype='uint8')
     for i in range(data.shape[0]):
@@ -161,7 +149,7 @@ def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=square
             new_image[i][j] = means[clusters[i][j]]
 
     total_time = int(time.time() - start)
-    logger.info('Segmenting took {0} seconds'.format(total_time))
+    logger.info('Segmenting took {0} seconds.'.format(total_time))
 
     return new_image
 
@@ -237,8 +225,8 @@ def load_image(image_path):
     except IOError as err:
         raise SegmentatorException(str(err))
 
-    logger.info('Loaded image: {0}'.format(image_path))
-    logger.debug('Image shape: {0}'.format(img.size))
+    logger.info('Loaded image: {0}.'.format(image_path))
+    logger.debug('Image shape: {0}.'.format(img.size))
     return img
 
 def save_image(data, image_path):
@@ -247,7 +235,7 @@ def save_image(data, image_path):
     @param {string} image_path - path to image
     '''
     img = Image.fromarray(data)
-    logger.info('Saving image: {0}'.format(image_path))
+    logger.info('Saving image: {0}.'.format(image_path))
     img.save(image_path)
     logger.info('Saved successfully!')
 
@@ -257,7 +245,7 @@ def init_logger(debug):
     @returns {Logger} initialized logger
     '''
     level = logging.DEBUG if debug else logging.INFO
-    format_string = '%(asctime)s %(message)s' if debug else '%(message)s'
+    format_string = '%(asctime)s %(levelname)s %(message)s' if debug else '%(message)s'
 
     logger = logging.getLogger('ImageSegmentator')
     logger.setLevel(level)
@@ -343,19 +331,21 @@ if __name__ == '__main__':
     original_data = np.array(original_img, dtype='uint8')[...,:3]
     
     # Compress image
+    logger.info('Compressing image.')
     original_img.thumbnail((max_size, max_size), Image.ANTIALIAS)
     compressed_data = np.array(original_img, dtype='uint8')[...,:3]  # RGB
-    logger.debug('Compressed image shape: {0}'.format(compressed_data.shape))
+    logger.debug('Compressed image shape: {0}.'.format(compressed_data.shape))
 
     # Segment image
     segmented_data = segment(compressed_data, k)
     
     # Enlarge image
+    logger.info('Re-enlarging image.')
     enlarged_img = Image.fromarray(segmented_data)
     enlarged_img = enlarged_img.resize(original_shape, Image.ANTIALIAS)
     enlarged_data = np.array(enlarged_img, dtype='uint8')[...,:3]
 
     cost = objective_function(original_data, enlarged_data)
-    logger.debug('Cost: %2f', cost)
+    logger.debug('Cost: {0}.'.format(cost))
     
-    save_image(enlarged_data, '%s_k%d_%d.png' %(image_path, k, int(cost)))
+    save_image(enlarged_data, '{0}_k{1}_{2}.png'.format(image_path, k, int(cost)))
