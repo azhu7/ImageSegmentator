@@ -5,6 +5,8 @@ an image such that pixels with the same label share similar characteristics. In 
  similar colors. This process is used to simplify images for other means such as edge detection.
 
 ## Requires
+- Python 2.7
+- numpy
 - matplotlib
 
 ## Quickstart
