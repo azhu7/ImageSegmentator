@@ -1,4 +1,4 @@
-# ImageSegmentator
+# ImageSegmentator (v1.0)
 ## Description
 Image Segmentation using K-Means. Image segmentation is the process of assigning a label to every pixel in 
 an image such that pixels with the same label share similar characteristics. In our case, 
@@ -11,7 +11,12 @@ we group pixels of similar colors.
 ```bash
 git clone https://github.com/azhu7/ImageSegmentator.git
 cd ImageSegmentator/src
-python segment.py ../sample_pictures/owl.jpg
+python segment.py -p ../sample_pictures/owl.jpg
+```
+
+## Help
+```bash
+python segment.py -h
 ```
 
 ## Examples
