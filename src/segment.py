@@ -379,7 +379,7 @@ if __name__ == '__main__':
 
     # Run n times
     for i in range(n):
-        logger.info('Trial {0}.'.format(i))
+        logger.info('Trial {0}.'.format(i+1))
         # Segment image
         segmented_data = segment(flattened, k)
 
