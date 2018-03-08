@@ -1,3 +1,9 @@
+'''
+Author:        Alexander Zhu
+Date Created:  5 March, 2018
+Description:   Implementation of K-means++ for image segmentation.
+'''
+
 from __future__ import print_function
 
 import sys
@@ -6,7 +12,6 @@ from matplotlib import pyplot as plt
 import time
 import getopt
 import logging
-
 from PIL import Image
 
 # Global logger
@@ -42,56 +47,54 @@ def objective_function(original, segmented):
 
 def compute_squared_distances(means, data):
     ''' For each data point x, compute the distance between x and the nearest mean.
-    @param {set of arrays} means - set of selected means
-    @param {3D uint8 numpy array} data - the image data
-    @returns {2D float numpy array} array of distances, one per pixel
+    @param {set} means - set of selected means
+    @param {1D numpy array} data - the flattened image data
+    @returns {1D float numpy array} array of distances, one per pixel
     @returns {float} sum of all distances (for weighted sampling)
     '''
-    distances = np.zeros(data.shape[:2])
+    distances = []
     distances_sum = 0
 
-    for i in range(distances.shape[0]):
-        for j in range(distances.shape[1]):
-            min_dist = float('inf')
-            for mean in means:
-                dist = squared_euclidean_distance(data[i][j], mean)
-                min_dist = min(min_dist, dist)
+    for i in range(data.shape[0]):
+        min_dist = float('inf')
+        for mean in means:
+            dist = squared_euclidean_distance(data[i], mean)
+            min_dist = min(min_dist, dist)
 
-            distances[i][j] = min_dist
-            distances_sum += min_dist
+        distances.append(min_dist)
+        distances_sum += min_dist
 
-    return distances, distances_sum
+    return np.array(distances), distances_sum
 
 def weighted_random(weights, weights_sum):
     ''' Choose a random item from a weighted distribution.
-    @param {2D float numpy array} weights - array of weights forming the distribution
+    @param {1D float numpy array} weights - array of weights forming the distribution
     @param {float} weights_sum - sum of all weights
     @returns {tuple} selected indices
     '''
     # Generate a random number: [0, weights_sum)
     r = np.random.rand() * weights_sum
     count = 0
+
     for i in range(weights.shape[0]):
-        for j in range(weights.shape[1]):
-            count += weights[i][j]
-            if r < count:
-                return i, j
+        count += weights[i]
+        if r < count:
+            return i
 
     raise SegmentatorException('Input image did not have at least k distinct pixels!')
 
 def k_means_plus_plus_initialization(data, k):
     ''' Initialize the means according to K-means++
-    @param {3D uint8 numpy array} data - the image data
+    @param {1D numpy array} data - the flattened image data
     @param {integer} k - number of means
-    @returns {2D float numpy array} initialized means
+    @returns {1D numpy array} initialized means
     '''
     logger.debug('Using K-means++ initialization.')
 
     # Choose initial center randomly
     selected_means = set()
     logger.debug('Selecting mean 1.')
-    selected_means.add(tuple(data[np.random.randint(0, data.shape[0])]
-        [np.random.randint(0, data.shape[1])]))
+    selected_means.add(tuple(data[np.random.randint(0, data.shape[0])]))
     
     # Choose the remaining k-1 initial means according to K-means++
     for i in range(k-1):
@@ -110,22 +113,22 @@ def k_means_plus_plus_initialization(data, k):
 
 def k_means_initialization(data, k):
     ''' Randomly initialize the means, according to K-means.
-    @param {3D uint8 numpy array} data - the image data
+    @param {1D numpy array} data - the flattened image data
     @param {integer} k - number of means
-    @returns {2D float numpy array} initialized means
+    @returns {1D numpy array} initialized means
     '''
     max_pixel_value = np.amax(data)
-    mean_shape = (k, data.shape[2])
+    mean_shape = (k, data[0].size)
     means = np.multiply(np.random.rand(*mean_shape), kMax_pixel_value)
     return means
 
 def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=squared_euclidean_distance):
     ''' Segment the image with K-means.
-    @param {3D uint8 numpy array} data - the image data
+    @param {1D numpy array} data - the flattened image data
     @param {integer} k - number of means
     @param {function} mean_init - function to use for initializing the means
     @param {function} distance - function to use for measuring distance between two points
-    @returns {3D uint8 numpy array} segmented image data
+    @returns {1D numpy array} segmented image data
     '''
     start = time.time()
     logger.info('Segmenting image into {0} segments.'.format(k))
@@ -135,59 +138,61 @@ def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=square
     logger.debug('Initial means: {0}.'.format(means))
 
     # Initialize all clusters as zero
-    clusters = np.zeros(data.shape[:2], dtype='uint8')
+    clusters = np.zeros(data.shape[0], dtype='uint8')
 
     num_reassigned = 11
     while num_reassigned > 10:
-        clusters, num_reassigned = assign_clusters(data, clusters, means, distance)
-        logger.debug('Num reassigned: {0}.'.format(num_reassigned))
-        means = compute_means(data, clusters, means.shape)
+        clusters, means, num_reassigned = naive_lloyd_iteration(logger, data, clusters, means, distance)
 
     new_image = np.zeros(data.shape, dtype='uint8')
     for i in range(data.shape[0]):
-        for j in range(data.shape[1]):
-            new_image[i][j] = means[clusters[i][j]]
+        new_image[i] = means[clusters[i]]
 
     total_time = int(time.time() - start)
     logger.info('Segmenting took {0} seconds.'.format(total_time))
 
     return new_image
 
+def naive_lloyd_iteration(logger, data, clusters, means, distance):
+    clusters, num_reassigned = assign_clusters(data, clusters, means, distance)
+    logger.debug('Num reassigned: {0}.'.format(num_reassigned))
+    means = compute_means(data, clusters, means.shape)
+    return clusters, means, num_reassigned
+
 def assign_clusters(data, clusters, means, distance):
     ''' Determine clusters by assign each pixel to the closest mean.
-    @param {3D uint8 numpy array} data - the image data
-    @param {2D uint8 numpy array} clusters - the current clusters
-    @param {2D float numpy array} means - the current means
+    @param {1D numpy array} data - the flattened image data
+    @param {1D uint8 numpy array} clusters - the current clusters
+    @param {1D numpy array} means - the current means
     @param {function} distance - function to use for measuring distance between two points
-    @returns {2D uint8 numpy array} new clusters
+    @returns {1D uint8 numpy array} new clusters
     @returns {integer} number of reassigned points
     '''
     num_reassigned = 0
 
     for i in range(data.shape[0]):
-        for j in range(data.shape[1]):
-            x = data[i][j]
-            closest_mean = 0
-            min_dist = float('inf')
-            for k in range(means.shape[0]):
-                mean = means[k]
-                dist = distance(x, mean)
-                if dist < min_dist:
-                    closest_mean = k
-                    min_dist = dist
+        x = data[i]
+        closest_mean = 0
+        min_dist = float('inf')
+        for k in range(means.shape[0]):
+            mean = means[k]
+            dist = distance(x, mean)
+            if dist < min_dist:
+                closest_mean = k
+                min_dist = dist
 
-            if clusters[i][j] != closest_mean:
-                clusters[i][j] = closest_mean  # Reassign
-                num_reassigned += 1
+        if clusters[i] != closest_mean:
+            clusters[i] = closest_mean  # Reassign
+            num_reassigned += 1
 
     return clusters, num_reassigned
 
 def compute_means(data, clusters, mean_shape):
     ''' Compute the mean of each cluster.
-    @param {3D uint8 numpy array} data - the image data
-    @param {2D uint8 numpy array} clusters - the current clusters
+    @param {1D numpy array} data - the flattened image data
+    @param {1D uint8 numpy array} clusters - the current clusters
     @param {tuple} mean_shape - shape of new means
-    @returns {2D float numpy array} new means
+    @returns {1D numpy array} new means
     '''
     means = np.zeros(mean_shape)
 
@@ -198,8 +203,7 @@ def compute_means(data, clusters, mean_shape):
 
     # Populate dictionary, mapping cluster id to list of data indices
     for i in range(clusters.shape[0]):
-        for j in range(clusters.shape[1]):
-            split_clusters[clusters[i][j]].append((i, j))
+        split_clusters[clusters[i]].append(i)
 
     for cluster_id, indices in split_clusters.items():
         # Protect against clusters of size zero
@@ -209,7 +213,7 @@ def compute_means(data, clusters, mean_shape):
 
         sum = np.zeros(mean_shape[1])
         for index in indices:
-            sum += data[index[0]][index[1]]
+            sum += data[index]
 
         means[cluster_id] = np.divide(sum, len(indices))
 
@@ -263,15 +267,15 @@ def intro():
     ''' Print intro text. '''
     print('-----------------------------------------------------------------------')
     print('                           Image Segmentator                           ')
-    print('                              Version 1.0                              ')
-    print('                           Author: Alex Zhu                            ')
+    print('                             Version 1.1.0                             ')
+    print('                         Author: Alexander Zhu                         ')
     print('-----------------------------------------------------------------------')
     print('')
 
 def usage():
     ''' Print usage information for ImageSegmentator '''
     print('-----------------------------------------------------------------------')
-    print('usage: segment.py [-p IMAGE_PATH] [-k K] [-m MAX_SIZE] [-h] [-v]')
+    print('usage: segment.py [-p IMAGE_PATH] [-k K] [-m MAX_SIZE] [-n N] [-h] [-v]')
     print('')
     print('required arguments:')
     print(' -p, --path IMAGE_PATH  path to the image to segment')
@@ -279,13 +283,15 @@ def usage():
     print('optional arguments:')
     print(' -k K (default 5)                       number of clusters')
     print(' -m, --max_size MAX_SIZE (default 256)  max scaled image side length')
+    print(' -n, --num_trials N (default 1)         number of times to segment')
     print(' -h, --help                             show this help message and exit')
     print(' -d, --debug (default False)            enable debug output')
     print('-----------------------------------------------------------------------')
 
-if __name__ == '__main__':
+def getopts():
+    ''' Process and return command line arguments. '''
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'p:k:m:hd', ['path=', 'max_size=', 'help', 'debug'])
+        opts, args = getopt.getopt(sys.argv[1:], 'p:k:m:n:hd', ['path=', 'max_size=', 'num_trials=', 'help', 'debug'])
     except getopt.GetoptError as err:
         print(err, file=sys.stderr)
         usage()
@@ -294,6 +300,7 @@ if __name__ == '__main__':
     debug = False
     k = 5
     max_size = 256
+    n = 1
     image_path = None
     for o, a in opts:
         if o in ('-h', '--help'):
@@ -313,6 +320,12 @@ if __name__ == '__main__':
             except (TypeError, ValueError):
                 usage()
                 sys.exit()
+        elif o in ('-n', '--num_trials'):
+            try:
+                n = int(a)
+            except (TypeError, ValueError):
+                usage()
+                sys.exit()
         elif o in ('-p', '--path'):
             image_path = a
         else:
@@ -320,9 +333,14 @@ if __name__ == '__main__':
 
     if image_path == None:
         usage()
-        sys.exit(0)
+        sys.exit()
 
+    return debug, k, max_size, n, image_path
+
+if __name__ == '__main__':
     intro()
+
+    debug, k, max_size, n, image_path = getopts()
     init_logger(debug)
 
     # Load image
@@ -334,18 +352,29 @@ if __name__ == '__main__':
     logger.info('Compressing image.')
     original_img.thumbnail((max_size, max_size), Image.ANTIALIAS)
     compressed_data = np.array(original_img, dtype='uint8')[...,:3]  # RGB
-    logger.debug('Compressed image shape: {0}.'.format(compressed_data.shape))
-
-    # Segment image
-    segmented_data = segment(compressed_data, k)
+    compressed_shape = compressed_data.shape
+    logger.debug('Compressed image shape: {0}.'.format(compressed_shape))
     
-    # Enlarge image
-    logger.info('Re-enlarging image.')
-    enlarged_img = Image.fromarray(segmented_data)
-    enlarged_img = enlarged_img.resize(original_shape, Image.ANTIALIAS)
-    enlarged_data = np.array(enlarged_img, dtype='uint8')[...,:3]
+    # Flatten into array of RGB tuples
+    flattened = np.reshape(compressed_data, (compressed_data.shape[0] * compressed_data.shape[1], -1))
+    logger.debug('Flattened image shape: {0}'.format(flattened.shape))
 
-    cost = objective_function(original_data, enlarged_data)
-    logger.debug('Cost: {0}.'.format(cost))
-    
-    save_image(enlarged_data, '{0}_k{1}_{2}.png'.format(image_path, k, int(cost)))
+    # Run n times
+    for i in range(n):
+        logger.info('Trial {0}.'.format(i))
+        # Segment image
+        segmented_data = segment(flattened, k)
+
+        # Unflatten
+        unflattened = np.reshape(segmented_data, compressed_shape)
+        
+        # Enlarge image
+        logger.info('Re-enlarging image.')
+        enlarged_img = Image.fromarray(unflattened)
+        enlarged_img = enlarged_img.resize(original_shape, Image.ANTIALIAS)
+        enlarged_data = np.array(enlarged_img, dtype='uint8')[...,:3]
+
+        cost = objective_function(original_data, enlarged_data)
+        logger.debug('Cost: {0}.'.format(cost))
+        
+        save_image(enlarged_data, '{0}_k{1}_{2}.png'.format(image_path, k, int(cost)))
