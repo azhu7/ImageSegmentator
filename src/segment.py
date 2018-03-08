@@ -13,6 +13,8 @@ import time
 import getopt
 import logging
 from PIL import Image
+from collections import OrderedDict
+import itertools
 
 # Global logger
 logger = logging.getLogger('ImageSegmentator')
@@ -26,6 +28,7 @@ class SegmentatorException(Exception):
 
 def squared_euclidean_distance(x, y):
     ''' Compute the squared Euclidean distance between two points.
+
     @param {1D float numpy array} x - a point
     @param {1D float numpy array} y - a point
     @returns {float} the squared Euclidean distance
@@ -34,19 +37,17 @@ def squared_euclidean_distance(x, y):
 
 def objective_function(original, segmented):
     ''' Compute the overall loss.
-    @param {3D uint8 numpy array} original - the original image data
-    @param {3D uint8 numpy array} clustered - the segmented image data
+
+    @param {1D numpy array} original - the original flattened image data
+    @param {1D numpy array} clustered - the segmented flattened image data
     @returns {float} the result of the objective function
     '''
-    cost = 0
-    for i in range(original.shape[0]):
-        for j in range(original.shape[1]):
-            cost += squared_euclidean_distance(original[i][j], segmented[i][j])
-
+    cost = sum(squared_euclidean_distance(x,y) for x,y in itertools.izip(original, segmented))
     return cost
 
 def compute_squared_distances(means, data):
     ''' For each data point x, compute the distance between x and the nearest mean.
+
     @param {set} means - set of selected means
     @param {1D numpy array} data - the flattened image data
     @returns {1D float numpy array} array of distances, one per pixel
@@ -68,6 +69,7 @@ def compute_squared_distances(means, data):
 
 def weighted_random(weights, weights_sum):
     ''' Choose a random item from a weighted distribution.
+
     @param {1D float numpy array} weights - array of weights forming the distribution
     @param {float} weights_sum - sum of all weights
     @returns {tuple} selected indices
@@ -85,6 +87,7 @@ def weighted_random(weights, weights_sum):
 
 def k_means_plus_plus_initialization(data, k):
     ''' Initialize the means according to K-means++
+
     @param {1D numpy array} data - the flattened image data
     @param {integer} k - number of means
     @returns {1D numpy array} initialized means
@@ -108,11 +111,12 @@ def k_means_plus_plus_initialization(data, k):
 
         selected_means.add(tuple(data[new_mean_idx]))
 
-    means = np.array(list(selected_means))
+    means = np.array(list(selected_means), dtype='float64')
     return means
 
 def k_means_initialization(data, k):
     ''' Randomly initialize the means, according to K-means.
+
     @param {1D numpy array} data - the flattened image data
     @param {integer} k - number of means
     @returns {1D numpy array} initialized means
@@ -124,6 +128,7 @@ def k_means_initialization(data, k):
 
 def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=squared_euclidean_distance):
     ''' Segment the image with K-means.
+
     @param {1D numpy array} data - the flattened image data
     @param {integer} k - number of means
     @param {function} mean_init - function to use for initializing the means
@@ -133,20 +138,25 @@ def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=square
     start = time.time()
     logger.info('Segmenting image into {0} segments.'.format(k))
     
-    # Initialize means
-    means = mean_init(data, k)
+    
+    means = mean_init(data, k)  # Initialize means
     logger.debug('Initial means: {0}.'.format(means))
+    clusters = np.zeros(data.shape[0], dtype='uint8')  # Initialize all clusters as zero
+    cost = None  # Track the costs over time
 
-    # Initialize all clusters as zero
-    clusters = np.zeros(data.shape[0], dtype='uint8')
+    threshold = 10
+    num_reassigned = threshold + 1  # Arbitrary number > threshold
+    while num_reassigned > threshold:
+        clusters, means, num_reassigned, _ = lloyd_iteration(logger, data, clusters, means, distance)
+        new_image = np.array([means[clusters[i]] for i in range(data.shape[0])], dtype='uint8')
 
-    num_reassigned = 11
-    while num_reassigned > 10:
-        clusters, means, num_reassigned = naive_lloyd_iteration(logger, data, clusters, means, distance)
-
-    new_image = np.zeros(data.shape, dtype='uint8')
-    for i in range(data.shape[0]):
-        new_image[i] = means[clusters[i]]
+        # Debug output
+        logger.debug('Num reassigned: {0}.'.format(num_reassigned))
+        new_cost = objective_function(data, new_image)
+        logger.debug('New cost: {0}'.format(new_cost))
+        if cost:
+            logger.debug('Delta: {0}'.format(new_cost - cost))
+        cost = new_cost
 
     total_time = int(time.time() - start)
     logger.info('Segmenting took {0} seconds.'.format(total_time))
@@ -170,75 +180,57 @@ def map_reduce_lloyd_iteration(logger, data, clusters, means, distance):
     def map_reduce_run(logger, data, clusters, means, distance):
         pass
 
+def lloyd_iteration(logger, data, clusters, means, distance):
+    ''' One step of Lloyd iteration.
+    First determine clusters by assign each pixel to the closest mean.
+    Then recompute the mean of each cluster.
 
-def naive_lloyd_iteration(logger, data, clusters, means, distance):
-    clusters, num_reassigned = assign_clusters(data, clusters, means, distance)
-    logger.debug('Num reassigned: {0}.'.format(num_reassigned))
-    means = compute_means(data, clusters, means.shape)
-    return clusters, means, num_reassigned
-
-def assign_clusters(data, clusters, means, distance):
-    ''' Determine clusters by assign each pixel to the closest mean.
     @param {1D numpy array} data - the flattened image data
-    @param {1D uint8 numpy array} clusters - the current clusters
+    @param {1D numpy array} clusters - the current clusters
     @param {1D numpy array} means - the current means
     @param {function} distance - function to use for measuring distance between two points
-    @returns {1D uint8 numpy array} new clusters
+    @returns {1D numpy array} new clusters
+    @returns {1D numpy array} new means
     @returns {integer} number of reassigned points
+    @returns {OrderedDict} dictionary mapping old mean to [new mean, [point indices]]
     '''
     num_reassigned = 0
+    # Map mean to [new mean, [point indices]]
+    cluster_dict = OrderedDict([tuple(mean), [np.zeros(means[0].shape), []]] for mean in means)
 
     for i in range(data.shape[0]):
         x = data[i]
-        closest_mean = 0
+        closest_mean_idx = 0
         min_dist = float('inf')
         for k in range(means.shape[0]):
             mean = means[k]
             dist = distance(x, mean)
             if dist < min_dist:
-                closest_mean = k
+                closest_mean_idx = k
                 min_dist = dist
 
-        if clusters[i] != closest_mean:
-            clusters[i] = closest_mean  # Reassign
+        if clusters[i] != closest_mean_idx:
             num_reassigned += 1
+            clusters[i] = closest_mean_idx  # Reassign
+        
+        # Update dictionary
+        closest_mean = means[closest_mean_idx]
+        cluster_dict[tuple(closest_mean)][0] += x
+        cluster_dict[tuple(closest_mean)][1].append(i)
 
-    return clusters, num_reassigned
+    # Compute new means
+    for i, key in enumerate(cluster_dict):
+        if cluster_dict[key][1]:
+            cluster_dict[key][0] /= len(cluster_dict[key][1])
+            means[i] = cluster_dict[key][0]
+        else:
+            means[i] = np.zeros(means[0].shape)
 
-def compute_means(data, clusters, mean_shape):
-    ''' Compute the mean of each cluster.
-    @param {1D numpy array} data - the flattened image data
-    @param {1D uint8 numpy array} clusters - the current clusters
-    @param {tuple} mean_shape - shape of new means
-    @returns {1D numpy array} new means
-    '''
-    means = np.zeros(mean_shape)
-
-    # Initialize dictionary of empty lists
-    split_clusters = {}
-    for i in range(mean_shape[0]):
-        split_clusters[i] = []
-
-    # Populate dictionary, mapping cluster id to list of data indices
-    for i in range(clusters.shape[0]):
-        split_clusters[clusters[i]].append(i)
-
-    for cluster_id, indices in split_clusters.items():
-        # Protect against clusters of size zero
-        if len(indices) == 0:
-            means[cluster_id] = 0
-            continue
-
-        sum = np.zeros(mean_shape[1])
-        for index in indices:
-            sum += data[index]
-
-        means[cluster_id] = np.divide(sum, len(indices))
-
-    return means
+    return clusters, means, num_reassigned, cluster_dict
 
 def load_image(image_path):
     ''' Load and return data as a numpy array.
+
     @param {string} image_path - path to image
     @returns {PIL Image} loaded image
     '''
@@ -253,6 +245,7 @@ def load_image(image_path):
 
 def save_image(data, image_path):
     ''' Save numpy array as image.
+
     @param {3D uint8 numpy array} data - the image data
     @param {string} image_path - path to image
     '''
@@ -263,6 +256,7 @@ def save_image(data, image_path):
 
 def init_logger(debug):
     ''' Initialize logger.
+
     @param {boolean} debug - show debug output if True
     @returns {Logger} initialized logger
     '''
