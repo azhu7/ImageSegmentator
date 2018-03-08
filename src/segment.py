@@ -153,6 +153,24 @@ def segment(data, k, mean_init=k_means_plus_plus_initialization, distance=square
 
     return new_image
 
+def map_reduce_lloyd_iteration(logger, data, clusters, means, distance):
+    # Pass in set of means, data (split per mapper)
+    # Mappers compute where each point should go, also keeps running sum of totals for new mean
+    # When all are done, pass arguments to reducers and start
+    # Reducers compute new centroid by looking at totals, combines list of points
+    def map(data, clusters, means, distance):
+        pass
+
+    def combine():
+        pass
+
+    def reduce():
+        pass
+
+    def map_reduce_run(logger, data, clusters, means, distance):
+        pass
+
+
 def naive_lloyd_iteration(logger, data, clusters, means, distance):
     clusters, num_reassigned = assign_clusters(data, clusters, means, distance)
     logger.debug('Num reassigned: {0}.'.format(num_reassigned))
